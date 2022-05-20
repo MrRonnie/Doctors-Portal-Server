@@ -19,6 +19,22 @@ const client = new MongoClient(uri, {
   serverApi: ServerApiVersion.v1,
 });
 
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: "UnAuthorized access" });
+  }
+  const token = authHeader.split(" ")[1];
+
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+}
+
 async function run() {
   try {
     await client.connect();
@@ -54,39 +70,6 @@ async function run() {
       res.send({ result, token });
     });
 
-    /**
-     * API Naming Convention
-     * app.get('/booking') // get all bookings in this collection. or get more than one or by filter
-     * app.get('/booking/:id') // get a specific booking
-     * app.post('/booking') // add a new booking
-     * app.patch('/booking/:id') //
-     * app.delete('/booking/:id') //
-     */
-
-    app.get("/booking", async (req, res) => {
-      const patient = req.query.patient;
-      const authorization = req.header.authorization;
-      console.log("auth header", authorization);
-      const query = { patient: patient };
-      const bookings = await bookingCollection.find(query).toArray();
-      res.send(bookings);
-    });
-
-    app.post("/booking", async (req, res) => {
-      const booking = req.body;
-      const query = {
-        treatment: booking.treatment,
-        date: booking.date,
-        patient: booking.patient,
-      };
-      const exists = await bookingCollection.findOne(query);
-      if (exists) {
-        return res.send({ success: false, booking: exists });
-      }
-      const result = await bookingCollection.insertOne(booking);
-      return res.send({ success: true, result });
-    });
-
     // Warning: This is not the proper way!!
 
     app.get("/available", async (req, res) => {
@@ -115,6 +98,42 @@ async function run() {
         service.slots = available;
       });
       res.send(services);
+    });
+
+    /**
+     * API Naming Convention
+     * app.get('/booking') // get all bookings in this collection. or get more than one or by filter
+     * app.get('/booking/:id') // get a specific booking
+     * app.post('/booking') // add a new booking
+     * app.patch('/booking/:id') //
+     * app.delete('/booking/:id') //
+     */
+
+    app.get("/booking", verifyJWT, async (req, res) => {
+      const patient = req.query.patient;
+      const decodedEmail = req.decoded.email;
+      if (patient === decodedEmail) {
+        const query = { patient: patient };
+        const bookings = await bookingCollection.find(query).toArray();
+        res.send(bookings);
+      } else {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+    });
+
+    app.post("/booking", async (req, res) => {
+      const booking = req.body;
+      const query = {
+        treatment: booking.treatment,
+        date: booking.date,
+        patient: booking.patient,
+      };
+      const exists = await bookingCollection.findOne(query);
+      if (exists) {
+        return res.send({ success: false, booking: exists });
+      }
+      const result = await bookingCollection.insertOne(booking);
+      return res.send({ success: true, result });
     });
 
     // ---------------
